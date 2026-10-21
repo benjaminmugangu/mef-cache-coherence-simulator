@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulateur MEF Cohérence de Caches (Snoopy MSI, MESI & Protocole par Répertoire)</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="title-group">
+        <h1>Plateforme de Cohérence de Caches (MSI, MESI \& Répertoire)</h1>
+        <p>Systèmes à Multiprocesseurs et Machines Parallèles &bull; TP Cohérence</p>
+      </div>
+      <div class="header-controls">
+        <label for="select-protocol" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Protocole :</label>
+        <select id="select-protocol" class="select-input" style="padding: 0.45rem 0.8rem; font-weight: 700;">
+          <option value="DIRECTORY" selected>Protocole par Répertoire (Directory-Based Unicast)</option>
+          <option value="MESI">MESI (Snoopy Broadcast - 4 États)</option>
+          <option value="MSI">MSI (Snoopy Broadcast - 3 États)</option>
+        </select>
+        <div id="protocol-badge" class="badge-course">Mode Répertoire Actif</div>
+      </div>
+    </header>
+
+    <!-- Top Grid: FSM Diagram + Control Panel -->
+    <div class="main-grid">
+      <!-- FSM Diagram Card -->
+      <div class="card">
+        <div class="card-title">
+          <span id="fsm-card-title">Machine à États du Répertoire (Directory Controller)</span>
+          <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">Visualisation réseau & transitions</span>
+        </div>
+        <div id="fsm-container"></div>
+      </div>
+
+      <!-- Control Panel Card -->
+      <div class="card">
+        <div class="card-title">Panneau de Commande CPU</div>
+        
+        <form id="control-form" class="controls-form" onsubmit="return false;">
+          <div class="form-group">
+            <label for="select-cpu">Processeur Cible</label>
+            <select id="select-cpu" class="select-input">
+              <option value="P1">Processeur 1 (P1)</option>
+              <option value="P2">Processeur 2 (P2)</option>
+              <option value="P3">Processeur 3 (P3)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="select-tag">Tag / Adresse Mémoire</label>
+            <select id="select-tag" class="select-input">
+              <option value="00">Tag 00 (Bloc 0)</option>
+              <option value="02">Tag 02 (Bloc 1)</option>
+              <option value="04">Tag 04 (Bloc 2)</option>
+              <option value="08">Tag 08 (Bloc 3)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="input-value">Valeur à Écrire (pour opération Écrire)</label>
+            <input type="text" id="input-value" class="text-input" placeholder="Ex: 42" value="99">
+          </div>
+
+          <div class="btn-group">
+            <button id="btn-read" type="button" class="btn btn-read">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              Lire (Read)
+            </button>
+            <button id="btn-write" type="button" class="btn btn-write">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+              Écrire (Write)
+            </button>
+          </div>
+
+          <button id="btn-reset" type="button" class="btn btn-reset">
+            Réinitialiser le Système
+          </button>
+        </form>
+
+        <!-- Presets -->
+        <div class="preset-section">
+          <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Scénarios de Démo :</span>
+          <button id="preset-1" class="btn-preset">1. Demande de Lecture (Uncached -> Shared)</button>
+          <button id="preset-2" class="btn-preset">2. Partage de Lecture (Vecteur de Présence [P1, P2])</button>
+          <button id="preset-3" class="btn-preset">3. Invalidation Ciblée (Point-à-Point sans Broadcast !)</button>
+          <button id="preset-4" class="btn-preset">4. Fetch-Forward & Write-Back via Répertoire</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Network & Directory Monitor Banner -->
+    <div class="bus-container">
+      <div class="bus-status">
+        <div id="bus-indicator" class="bus-indicator"></div>
+        <div>
+          <span style="font-size: 0.75rem; color: var(--text-muted); display: block; text-transform: uppercase; font-weight: 700;">Interconnexion Réseau & Service de Cohérence</span>
+          <span id="bus-msg" class="bus-msg">En attente d'une commande CPU...</span>
+        </div>
+      </div>
+      <div id="last-transition-badge" style="font-size: 0.85rem; color: var(--primary);">
+        Système initialisé
+      </div>
+    </div>
+
+    <!-- Directory Table Section (Protocole par Répertoire) -->
+    <div id="directory-card-section" class="card" style="background: rgba(15, 23, 42, 0.9); border-color: rgba(236, 72, 153, 0.4);">
+      <div class="card-title" style="color: #f472b6;">
+        <span>Table du Répertoire Centralisé (Directory State \& Presence Vectors)</span>
+        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal;">Gestion des messages ciblés Unicast</span>
+      </div>
+      <table class="cache-table">
+        <thead>
+          <tr>
+            <th>Tag / Adresse</th>
+            <th>État du Répertoire</th>
+            <th>Vecteur de Présence (Presence Bit Vector)</th>
+            <th>Propriétaire Exclusif (Owner)</th>
+          </tr>
+        </thead>
+        <tbody id="directory-table-body"></tbody>
+      </table>
+    </div>
+
+    <!-- Architecture Grid: 3 Processors Caches + Main Memory -->
+    <div class="architecture-grid">
+      <div class="card cpu-card">
+        <div class="cpu-header">
+          <span>Processeur P1</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">Cache L1</span>
+        </div>
+        <table class="cache-table">
+          <thead>
+            <tr>
+              <th>Tag</th>
+              <th>State (État)</th>
+              <th>Data Value</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="cache-p1-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card cpu-card">
+        <div class="cpu-header">
+          <span>Processeur P2</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">Cache L1</span>
+        </div>
+        <table class="cache-table">
+          <thead>
+            <tr>
+              <th>Tag</th>
+              <th>State (État)</th>
+              <th>Data Value</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="cache-p2-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card cpu-card">
+        <div class="cpu-header">
+          <span>Processeur P3</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">Cache L1</span>
+        </div>
+        <table class="cache-table">
+          <thead>
+            <tr>
+              <th>Tag</th>
+              <th>State (État)</th>
+              <th>Data Value</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="cache-p3-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card cpu-card" style="background: rgba(15, 23, 42, 0.95); border-color: rgba(56, 189, 248, 0.3);">
+        <div class="cpu-header" style="color: var(--primary);">
+          <span>Mémoire Principale</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">RAM (4 Blocs)</span>
+        </div>
+        <table class="cache-table">
+          <thead>
+            <tr>
+              <th>Tag</th>
+              <th>Adresse</th>
+              <th>Valeur Stockée</th>
+            </tr>
+          </thead>
+          <tbody id="main-memory-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- History Log Table -->
+    <div class="card">
+      <div class="card-title">Historique des Transactions, Réponses du Répertoire \& Interconnexion</div>
+      <div class="history-table-wrapper">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Protocole</th>
+              <th>CPU Requérant</th>
+              <th>Tag</th>
+              <th>Opération</th>
+              <th>Événement</th>
+              <th>Transition d'État</th>
+              <th>Messages Réseau / Bus</th>
+              <th>Effets Ciblés \& Mise à jour Répertoire</th>
+            </tr>
+          </thead>
+          <tbody id="history-table-body">
+            <tr>
+              <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">
+                Aucune transaction effectuée. Utilisez le panneau de commande pour lancer des requêtes.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>
